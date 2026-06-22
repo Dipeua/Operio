@@ -1,0 +1,16 @@
+# Données utilisateur (générées par l'app)
+operateurs.json
+
+# Exports PDF
+*.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS
+Thumbs.db
+.DS_Store

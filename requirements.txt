@@ -1,0 +1,5 @@
+# Dépendance nécessaire à l'export PDF
+reportlab>=4.0
+
+# Optionnel : seulement pour régénérer la capture d'écran (_capture.py)
+# Pillow>=10.0
