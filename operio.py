@@ -55,6 +55,18 @@ ORANGE_COLOR = "#ea580c"   # orange (Orange)
 # --------------------------------------------------------------------------- #
 #  Détection du FAI (Mobile Money) à partir du préfixe
 # --------------------------------------------------------------------------- #
+def tel_digits(tel):
+    """Réduit un numéro à ses seuls chiffres (sans +237) pour comparer deux numéros.
+
+    Ainsi « 697 89 04 66 », « 697890466 » et « +237 697 89 04 66 »
+    sont reconnus comme identiques.
+    """
+    digits = re.sub(r"\D", "", tel)
+    if digits.startswith("237") and len(digits) > 9:
+        digits = digits[3:]
+    return digits
+
+
 def detecter_fai(tel):
     """Retourne 'MTN Money', 'Orange Money' ou '—' selon le préfixe camerounais.
 
@@ -224,6 +236,7 @@ class OperioApp(tk.Tk):
         self.tree.tag_configure("even", background=ROW_ALT)
         self.tree.tag_configure("mtn", foreground=MTN_COLOR)
         self.tree.tag_configure("orange", foreground=ORANGE_COLOR)
+        self.tree.tag_configure("dup", background="#fee2e2")  # doublon de numéro
 
         vsb = ttk.Scrollbar(table_wrap, orient="vertical",
                             command=self.tree.yview,
@@ -264,11 +277,21 @@ class OperioApp(tk.Tk):
                 f"« {tel} » ne ressemble pas à un numéro de téléphone.\n\nL'ajouter quand même ?"):
                 return
 
-        # Doublon ?
+        # Doublon de nom ?
         if any(o["nom"].lower() == nom.lower() for o in self.operateurs):
             if not messagebox.askyesno(
                 "Doublon",
                 f"Un opérateur nommé « {nom} » existe déjà.\n\nL'ajouter quand même ?"):
+                return
+
+        # Doublon de numéro ?
+        proprio = next((o for o in self.operateurs
+                        if tel_digits(o["tel"]) == tel_digits(tel)), None)
+        if proprio is not None:
+            if not messagebox.askyesno(
+                "Numéro déjà présent",
+                f"Le numéro « {tel} » est déjà attribué à « {proprio['nom']} ».\n\n"
+                "L'ajouter quand même ?"):
                 return
 
         self.operateurs.append({"nom": nom, "tel": tel})
@@ -387,6 +410,16 @@ class OperioApp(tk.Tk):
                         "Continuer quand même ?", parent=dlg):
                     return
 
+            # Doublon de numéro (en ignorant l'opérateur en cours d'édition)
+            proprio = next((o for o in self.operateurs
+                            if o is not op and tel_digits(o["tel"]) == tel_digits(tel)), None)
+            if proprio is not None:
+                if not messagebox.askyesno(
+                        "Numéro déjà présent",
+                        f"Le numéro « {tel} » est déjà attribué à « {proprio['nom']} ».\n\n"
+                        "Continuer quand même ?", parent=dlg):
+                    return
+
             op["nom"] = nom
             op["tel"] = tel
             self._save()
@@ -411,15 +444,33 @@ class OperioApp(tk.Tk):
 
     def _refresh_table(self):
         self.tree.delete(*self.tree.get_children())
+
+        # Repérer les numéros présents plusieurs fois (comparaison sur les chiffres)
+        compteur = {}
+        for o in self.operateurs:
+            compteur[tel_digits(o["tel"])] = compteur.get(tel_digits(o["tel"]), 0) + 1
+
+        nb_doublons = 0
         for idx, o in enumerate(self._sorted()):
             tag = "even" if idx % 2 == 0 else "odd"
             fai = detecter_fai(o["tel"])
             color_tag = "mtn" if fai == "MTN Money" else "orange" if fai == "Orange Money" else None
-            tags = (tag, color_tag) if color_tag else (tag,)
-            self.tree.insert("", "end", values=(o["nom"], o["tel"], fai), tags=tags)
+            tags = [tag]
+            if color_tag:
+                tags.append(color_tag)
+            if compteur.get(tel_digits(o["tel"]), 0) > 1:
+                tags.append("dup")  # en dernier : surligne la ligne en doublon
+                nb_doublons += 1
+            self.tree.insert("", "end", values=(o["nom"], o["tel"], fai), tags=tuple(tags))
+
         n = len(self.operateurs)
-        self.count_lbl.config(
-            text=f"{n} opérateur{'s' if n > 1 else ''} dans le répertoire")
+        txt = f"{n} opérateur{'s' if n > 1 else ''} dans le répertoire"
+        if nb_doublons:
+            txt += f"  ·  ⚠ {nb_doublons} ligne(s) avec un numéro en double"
+            self.count_lbl.config(fg=DANGER)
+        else:
+            self.count_lbl.config(fg=MUTED)
+        self.count_lbl.config(text=txt)
 
     # ------------------------- Persistance -------------------------------- #
     def _load(self):
