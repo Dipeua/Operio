@@ -202,6 +202,8 @@ class OperioApp(tk.Tk):
                   SUCCESS, hover=SUCCESS_DK).pack(side="right")
         self._btn(actions, "🗑  Supprimer la sélection", self._delete_selected,
                   DANGER, hover=DANGER_DK).pack(side="right", padx=(0, 10))
+        self._btn(actions, "✏  Modifier", self._edit_selected,
+                  "#0891b2", hover="#0e7490").pack(side="right", padx=(0, 10))
 
         # ---- Tableau ----
         table_wrap = tk.Frame(self, bg=CARD, highlightthickness=1,
@@ -231,6 +233,7 @@ class OperioApp(tk.Tk):
         vsb.pack(side="right", fill="y", pady=6, padx=(0, 6))
 
         self.tree.bind("<Delete>", lambda e: self._delete_selected())
+        self.tree.bind("<Double-1>", lambda e: self._edit_selected())
 
         # ---- Pied de page ----
         self.status = tk.Label(self, text="Prêt.", bg=BG, fg=MUTED,
@@ -296,6 +299,112 @@ class OperioApp(tk.Tk):
         self._save()
         self._refresh_table()
         self._set_status(f"{len(cibles)} opérateur(s) supprimé(s).", DANGER)
+
+    def _edit_selected(self):
+        sel = self.tree.selection()
+        if not sel:
+            self._set_status("Sélectionnez une ligne à modifier.", DANGER)
+            return
+        if len(sel) > 1:
+            self._set_status("Sélectionnez une seule ligne à modifier.", DANGER)
+            return
+        vals = self.tree.item(sel[0], "values")
+        old_nom, old_tel = vals[0], vals[1]
+        cible = next((o for o in self.operateurs
+                      if o["nom"] == old_nom and o["tel"] == old_tel), None)
+        if cible is None:
+            self._set_status("Opérateur introuvable.", DANGER)
+            return
+        self._open_edit_dialog(cible)
+
+    def _open_edit_dialog(self, op):
+        """Fenêtre modale pour modifier le nom et le numéro d'un opérateur."""
+        dlg = tk.Toplevel(self)
+        dlg.title("Modifier l'opérateur")
+        dlg.configure(bg=BG)
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        # Centrage par rapport à la fenêtre principale
+        self.update_idletasks()
+        w, h = 420, 260
+        x = self.winfo_rootx() + (self.winfo_width() - w) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - h) // 2
+        dlg.geometry(f"{w}x{h}+{max(x, 0)}+{max(y, 0)}")
+
+        card = tk.Frame(dlg, bg=CARD, highlightthickness=1,
+                        highlightbackground=BORDER, highlightcolor=BORDER)
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+        inner = tk.Frame(card, bg=CARD)
+        inner.pack(fill="both", expand=True, padx=18, pady=18)
+
+        tk.Label(inner, text="✏  Modifier l'opérateur", bg=CARD, fg=TEXT,
+                 font=("Segoe UI Semibold", 13)).grid(
+                     row=0, column=0, columnspan=2, sticky="w", pady=(0, 14))
+
+        tk.Label(inner, text="Nom de l'opérateur", bg=CARD, fg=MUTED,
+                 font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w")
+        nom_var = tk.StringVar(value=op["nom"])
+        nom_entry = ttk.Entry(inner, textvariable=nom_var,
+                              style="Operio.TEntry", width=40)
+        nom_entry.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 12))
+
+        tk.Label(inner, text="Numéro de téléphone", bg=CARD, fg=MUTED,
+                 font=("Segoe UI", 9)).grid(row=3, column=0, sticky="w")
+        tel_var = tk.StringVar(value=op["tel"])
+        tel_entry = ttk.Entry(inner, textvariable=tel_var,
+                              style="Operio.TEntry", width=40)
+        tel_entry.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(4, 16))
+
+        inner.columnconfigure(0, weight=1)
+
+        def enregistrer():
+            nom = nom_var.get().strip()
+            tel = tel_var.get().strip()
+            if not nom:
+                messagebox.showwarning("Champ manquant",
+                                       "Veuillez entrer un nom d'opérateur.", parent=dlg)
+                nom_entry.focus_set()
+                return
+            if not tel:
+                messagebox.showwarning("Champ manquant",
+                                       "Veuillez entrer un numéro de téléphone.", parent=dlg)
+                tel_entry.focus_set()
+                return
+            if not re.fullmatch(r"[0-9 +().\-]{4,}", tel):
+                if not messagebox.askyesno(
+                        "Numéro inhabituel",
+                        f"« {tel} » ne ressemble pas à un numéro de téléphone.\n\n"
+                        "L'enregistrer quand même ?", parent=dlg):
+                    return
+            # Doublon de nom (en ignorant l'opérateur en cours d'édition)
+            if any(o is not op and o["nom"].lower() == nom.lower()
+                   for o in self.operateurs):
+                if not messagebox.askyesno(
+                        "Doublon",
+                        f"Un autre opérateur nommé « {nom} » existe déjà.\n\n"
+                        "Continuer quand même ?", parent=dlg):
+                    return
+
+            op["nom"] = nom
+            op["tel"] = tel
+            self._save()
+            self._refresh_table()
+            self._set_status(f"« {nom} » modifié.", SUCCESS)
+            dlg.destroy()
+
+        btns = tk.Frame(inner, bg=CARD)
+        btns.grid(row=5, column=0, columnspan=2, sticky="e")
+        self._btn(btns, "Annuler", dlg.destroy, "#e2e8f0",
+                  fg=TEXT, hover="#cbd5e1").pack(side="right", padx=(10, 0))
+        self._btn(btns, "✓  Enregistrer", enregistrer, ACCENT,
+                  hover=ACCENT_DK).pack(side="right")
+
+        nom_entry.focus_set()
+        nom_entry.selection_range(0, "end")
+        dlg.bind("<Return>", lambda e: enregistrer())
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
 
     def _sorted(self):
         return sorted(self.operateurs, key=lambda o: o["nom"].casefold())
