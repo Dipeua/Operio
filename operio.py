@@ -47,6 +47,32 @@ SUCCESS_DK = "#15803d"
 ROW_ALT   = "#f8fafc"   # ligne alternée très claire
 HEAD_BG   = "#eef2f7"   # en-tête de tableau
 
+# Couleurs des FAI (Mobile Money)
+MTN_COLOR    = "#d97706"   # ambre (MTN)
+ORANGE_COLOR = "#ea580c"   # orange (Orange)
+
+
+# --------------------------------------------------------------------------- #
+#  Détection du FAI (Mobile Money) à partir du préfixe
+# --------------------------------------------------------------------------- #
+def detecter_fai(tel):
+    """Retourne 'MTN Money', 'Orange Money' ou '—' selon le préfixe camerounais.
+
+    Règle (2026) : 650–654 et 670–689 → MTN · 640, 655–659 et 690–699 → Orange.
+    L'indicatif pays +237 éventuel est ignoré.
+    """
+    digits = re.sub(r"\D", "", tel)
+    if digits.startswith("237"):
+        digits = digits[3:]
+    if len(digits) < 3:
+        return "—"
+    n = int(digits[:3])
+    if 650 <= n <= 654 or 670 <= n <= 689:
+        return "MTN Money"
+    if n == 640 or 655 <= n <= 659 or 690 <= n <= 699:
+        return "Orange Money"
+    return "—"
+
 
 # --------------------------------------------------------------------------- #
 #  Application
@@ -182,16 +208,20 @@ class OperioApp(tk.Tk):
                               highlightbackground=BORDER, highlightcolor=BORDER)
         table_wrap.pack(fill="both", expand=True, padx=24, pady=14)
 
-        cols = ("nom", "tel")
+        cols = ("nom", "tel", "fai")
         self.tree = ttk.Treeview(table_wrap, columns=cols, show="headings",
                                  style="Operio.Treeview", selectmode="extended")
         self.tree.heading("nom", text="Nom de l'opérateur")
         self.tree.heading("tel", text="Téléphone")
-        self.tree.column("nom", anchor="w", width=420)
-        self.tree.column("tel", anchor="w", width=220)
+        self.tree.heading("fai", text="FAI")
+        self.tree.column("nom", anchor="w", width=330)
+        self.tree.column("tel", anchor="w", width=170)
+        self.tree.column("fai", anchor="w", width=150)
 
         self.tree.tag_configure("odd", background=CARD)
         self.tree.tag_configure("even", background=ROW_ALT)
+        self.tree.tag_configure("mtn", foreground=MTN_COLOR)
+        self.tree.tag_configure("orange", foreground=ORANGE_COLOR)
 
         vsb = ttk.Scrollbar(table_wrap, orient="vertical",
                             command=self.tree.yview,
@@ -274,7 +304,10 @@ class OperioApp(tk.Tk):
         self.tree.delete(*self.tree.get_children())
         for idx, o in enumerate(self._sorted()):
             tag = "even" if idx % 2 == 0 else "odd"
-            self.tree.insert("", "end", values=(o["nom"], o["tel"]), tags=(tag,))
+            fai = detecter_fai(o["tel"])
+            color_tag = "mtn" if fai == "MTN Money" else "orange" if fai == "Orange Money" else None
+            tags = (tag, color_tag) if color_tag else (tag,)
+            self.tree.insert("", "end", values=(o["nom"], o["tel"], fai), tags=tags)
         n = len(self.operateurs)
         self.count_lbl.config(
             text=f"{n} opérateur{'s' if n > 1 else ''} dans le répertoire")
@@ -352,11 +385,20 @@ class OperioApp(tk.Tk):
             Spacer(1, 0.6 * cm),
         ]
 
-        data = [["#", "Nom de l'opérateur", "Téléphone"]]
+        data = [["#", "Nom de l'opérateur", "Téléphone", "FAI"]]
+        fai_styles = []  # couleur du FAI ligne par ligne
         for i, o in enumerate(self._sorted(), start=1):
-            data.append([str(i), o["nom"], o["tel"]])
+            fai = detecter_fai(o["tel"])
+            data.append([str(i), o["nom"], o["tel"], fai])
+            if fai == "MTN Money":
+                fai_styles.append(("TEXTCOLOR", (3, i), (3, i), colors.HexColor(MTN_COLOR)))
+                fai_styles.append(("FONTNAME", (3, i), (3, i), "Helvetica-Bold"))
+            elif fai == "Orange Money":
+                fai_styles.append(("TEXTCOLOR", (3, i), (3, i), colors.HexColor(ORANGE_COLOR)))
+                fai_styles.append(("FONTNAME", (3, i), (3, i), "Helvetica-Bold"))
 
-        table = Table(data, colWidths=[1.2 * cm, 9.8 * cm, 6 * cm], repeatRows=1)
+        table = Table(data, colWidths=[1.2 * cm, 7.6 * cm, 4.4 * cm, 3.8 * cm],
+                      repeatRows=1)
         table.setStyle(TableStyle([
             # En-tête
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0ea5e9")),
@@ -376,7 +418,7 @@ class OperioApp(tk.Tk):
              [colors.white, colors.HexColor("#eef6fb")]),
             ("LINEBELOW", (0, 0), (-1, 0), 1.2, colors.HexColor("#0284c7")),
             ("LINEBELOW", (0, 1), (-1, -1), 0.4, colors.HexColor("#e2e8f0")),
-        ]))
+        ] + fai_styles))
 
         story.append(table)
         doc.build(story)
